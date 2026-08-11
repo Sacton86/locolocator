@@ -1,0 +1,991 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SOP: LocoLocator — Ubiquiti Radio Provisioning</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --black:    #0a0a0a;
+      --red:      #cc1111;
+      --white:    #ffffff;
+      --gray-100: #f4f4f4;
+      --gray-200: #e2e2e2;
+      --gray-500: #888888;
+      --gray-700: #444444;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--gray-100);
+      color: var(--gray-700);
+      line-height: 1.7;
+      font-size: 15px;
+    }
+
+    /* ── HEADER ── */
+    header {
+      background: var(--black);
+      padding: 24px 48px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+    header img { height: 44px; }
+    .header-badge {
+      background: var(--red);
+      color: var(--white);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      padding: 5px 13px;
+      border-radius: 4px;
+    }
+
+    /* ── TITLE BLOCK ── */
+    .title-block {
+      background: linear-gradient(135deg, #111 0%, #1f1f1f 60%, #2a0404 100%);
+      color: var(--white);
+      padding: 48px 48px 40px;
+      border-bottom: 4px solid var(--red);
+    }
+    .sop-label {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+      color: var(--red);
+      margin-bottom: 10px;
+    }
+    .title-block h1 {
+      font-size: 1.9rem;
+      font-weight: 700;
+      line-height: 1.2;
+      margin-bottom: 10px;
+      color: var(--white);
+    }
+    .title-block h1 span { color: var(--red); }
+    .title-block p {
+      font-size: .95rem;
+      color: #bbb;
+      max-width: 640px;
+    }
+    .doc-meta {
+      margin-top: 28px;
+      display: flex;
+      gap: 36px;
+      flex-wrap: wrap;
+      padding-top: 20px;
+      border-top: 1px solid #333;
+    }
+    .doc-meta-item { font-size: 12px; color: #999; }
+    .doc-meta-item strong { display: block; color: var(--white); font-size: 13px; margin-bottom: 2px; }
+
+    /* ── MAIN ── */
+    main {
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 48px 24px 80px;
+    }
+
+    /* ── SECTION ── */
+    .sop-section {
+      background: var(--white);
+      border-radius: 10px;
+      border: 1px solid var(--gray-200);
+      box-shadow: 0 2px 8px rgba(0,0,0,.05);
+      margin-bottom: 28px;
+      overflow: hidden;
+    }
+    .sop-section-header {
+      background: var(--black);
+      padding: 16px 28px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .section-num {
+      background: var(--red);
+      color: var(--white);
+      font-size: 13px;
+      font-weight: 700;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .sop-section-header h2 {
+      color: var(--white);
+      font-size: 1rem;
+      font-weight: 600;
+      letter-spacing: .01em;
+    }
+    .sop-section-body {
+      padding: 28px 32px;
+    }
+
+    /* ── STEPS ── */
+    .step-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .step-list li {
+      display: flex;
+      gap: 16px;
+      align-items: flex-start;
+    }
+    .step-bullet {
+      min-width: 26px;
+      height: 26px;
+      background: var(--red);
+      color: var(--white);
+      border-radius: 50%;
+      font-size: 11px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+    .step-content { flex: 1; }
+    .step-content strong { color: var(--black); }
+    .step-content p { margin-bottom: 8px; }
+    .step-content p:last-child { margin-bottom: 0; }
+
+    /* ── SUB-LIST ── */
+    .sub-list {
+      list-style: none;
+      margin-top: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .sub-list li {
+      display: flex;
+      gap: 10px;
+      font-size: .9rem;
+      color: var(--gray-700);
+      align-items: flex-start;
+    }
+    .sub-list li::before {
+      content: '—';
+      color: var(--red);
+      font-weight: 700;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    /* ── CODE BLOCK ── */
+    .cmd {
+      display: block;
+      background: #111;
+      color: #e8e8e8;
+      font-family: 'Courier New', monospace;
+      font-size: .83rem;
+      padding: 12px 16px;
+      border-radius: 6px;
+      border-left: 3px solid var(--red);
+      margin: 10px 0;
+      word-break: break-all;
+      line-height: 1.5;
+    }
+    code {
+      background: #f0f0f0;
+      color: var(--black);
+      font-family: 'Courier New', monospace;
+      font-size: .83rem;
+      padding: 1px 6px;
+      border-radius: 3px;
+    }
+
+    /* ── CALLOUT ── */
+    .callout-warn {
+      background: #fff8e1;
+      border-left: 4px solid #f0a500;
+      border-radius: 0 6px 6px 0;
+      padding: 14px 18px;
+      margin: 16px 0;
+      font-size: .88rem;
+      color: #5a4000;
+    }
+    .callout-warn strong { color: #3a2800; }
+
+    .callout-info {
+      background: #e8f0fe;
+      border-left: 4px solid #1a56a0;
+      border-radius: 0 6px 6px 0;
+      padding: 14px 18px;
+      margin: 16px 0;
+      font-size: .88rem;
+      color: #1a3060;
+    }
+    .callout-info strong { color: #0f1f40; }
+
+    .callout-danger {
+      background: #fdecea;
+      border-left: 4px solid var(--red);
+      border-radius: 0 6px 6px 0;
+      padding: 14px 18px;
+      margin: 16px 0;
+      font-size: .88rem;
+      color: #7a1010;
+    }
+    .callout-danger strong { color: #4a0808; }
+
+    .callout-ok {
+      background: #e6f9ec;
+      border-left: 4px solid #28a745;
+      border-radius: 0 6px 6px 0;
+      padding: 14px 18px;
+      margin: 16px 0;
+      font-size: .88rem;
+      color: #1a4a2a;
+    }
+    .callout-ok strong { color: #0f2e19; }
+
+    /* ── REFERENCE TABLE ── */
+    .ref-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 8px;
+      font-size: .88rem;
+    }
+    .ref-table thead { background: #f4f4f4; }
+    .ref-table th {
+      padding: 10px 14px;
+      text-align: left;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: var(--gray-500);
+      border-bottom: 2px solid var(--gray-200);
+    }
+    .ref-table td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--gray-200);
+      vertical-align: top;
+    }
+    .ref-table tr:last-child td { border-bottom: none; }
+    .ref-table .label { font-weight: 600; color: var(--black); }
+    .ref-table .detail { color: var(--gray-700); }
+
+    /* ── CHECKLIST ── */
+    .checklist {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 4px;
+    }
+    .checklist li {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      font-size: .9rem;
+    }
+    .check-box {
+      width: 18px;
+      height: 18px;
+      border: 2px solid var(--gray-200);
+      border-radius: 3px;
+      flex-shrink: 0;
+      margin-top: 2px;
+      background: var(--white);
+    }
+
+    /* ── DIVIDER ── */
+    .divider { border: none; border-top: 1px solid var(--gray-200); margin: 8px 0 20px; }
+
+    /* ── FOOTER ── */
+    footer {
+      background: var(--black);
+      color: #555;
+      text-align: center;
+      padding: 24px;
+      font-size: .78rem;
+    }
+    footer span { color: var(--red); }
+
+    @media print {
+      body { background: white; font-size: 13px; }
+      header { padding: 16px 32px; }
+      .title-block { padding: 32px; }
+      main { padding: 24px 0; }
+      .sop-section { box-shadow: none; border: 1px solid #ccc; page-break-inside: avoid; }
+      footer { display: none; }
+    }
+
+    @media (max-width: 640px) {
+      header { padding: 16px 20px; }
+      .title-block { padding: 32px 20px; }
+      .sop-section-body { padding: 20px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header>
+  <img src="https://i.imgur.com/8Lz8tfU.png" alt="Impact LED Signs" />
+  <span class="header-badge">Technician SOP</span>
+</header>
+
+<!-- TITLE BLOCK -->
+<div class="title-block">
+  <div class="sop-label">Standard Operating Procedure</div>
+  <h1>LocoLocator — <span>Ubiquiti Radio</span><br>Provisioning Tool</h1>
+  <p>
+    Step-by-step guide for field technicians using LocoLocator to detect, authenticate,
+    and flash Ubiquiti airOS radios on Linux or Windows.
+  </p>
+  <div class="doc-meta">
+    <div class="doc-meta-item"><strong>Version</strong>v1.0.0</div>
+    <div class="doc-meta-item"><strong>Platform</strong>Linux / Windows 10 &amp; 11</div>
+    <div class="doc-meta-item"><strong>Revised</strong>August 2026</div>
+    <div class="doc-meta-item"><strong>Classification</strong>Internal — Technician Use Only</div>
+  </div>
+</div>
+
+<!-- MAIN -->
+<main>
+
+  <!-- SECTION 1 -->
+  <div class="sop-section">
+    <div class="sop-section-header">
+      <div class="section-num">1</div>
+      <h2>Pre-Requisites</h2>
+    </div>
+    <div class="sop-section-body">
+      <p style="margin-bottom:16px;">Confirm all of the following before running LocoLocator. Do not proceed until every item is satisfied.</p>
+
+      <ul class="checklist">
+        <li>
+          <div class="check-box"></div>
+          <span><strong>Laptop Ethernet port available</strong> — LocoLocator communicates with the radio over a direct wired connection. Wi-Fi will not work.</span>
+        </li>
+        <li>
+          <div class="check-box"></div>
+          <span><strong>Ethernet cable connected</strong> — Run a cable from the laptop's Ethernet port to the PoE injector's LAN port. The radio plugs into the PoE injector's POE port.</span>
+        </li>
+        <li>
+          <div class="check-box"></div>
+          <span><strong>Radio powered on and connected</strong> — The radio must be plugged into the PoE injector and fully booted before scanning. Allow at least 60 seconds after power-on before starting.</span>
+        </li>
+        <li>
+          <div class="check-box"></div>
+          <span><strong>Wireless SSID</strong> — The network name to assign to the radio pair. Both the Building Side and Sign Side of a pair must share the exact same SSID.</span>
+        </li>
+        <li>
+          <div class="check-box"></div>
+          <span><strong>Administrator / sudo access</strong> — The script must configure network adapters, which requires elevated privileges on both Linux and Windows.</span>
+        </li>
+        <li>
+          <div class="check-box"></div>
+          <span><strong>Internet access (first run only)</strong> — Linux auto-installs <code>sshpass</code> via apt if missing. Windows auto-installs the <code>Posh-SSH</code> PowerShell module if missing. Both require internet on the first run only.</span>
+        </li>
+      </ul>
+
+      <div class="callout-info" style="margin-top:20px;">
+        <strong>Factory Default vs. Already-Configured Radios</strong>
+        LocoLocator handles both. A factory-fresh radio answers at <strong>192.168.1.20</strong> and logs in with
+        <code>ubnt / ubnt</code>. A previously configured radio answers at <strong>192.168.0.218</strong> or
+        <strong>192.168.0.219</strong> and logs in with <code>Admin / !mpact1234</code>. Credentials are selected
+        automatically — no manual entry needed for known IPs.
+      </div>
+    </div>
+  </div>
+
+  <!-- SECTION 2 -->
+  <div class="sop-section">
+    <div class="sop-section-header">
+      <div class="section-num">2</div>
+      <h2>Starting LocoLocator — Linux</h2>
+    </div>
+    <div class="sop-section-body">
+      <p style="margin-bottom:18px;">Run directly from the internet with a single command, or run the downloaded script. Both require <strong>sudo</strong>.</p>
+
+      <ul class="step-list">
+        <li>
+          <div class="step-bullet">1</div>
+          <div class="step-content">
+            <p>Open a terminal and run one of the following:</p>
+            <p><strong>Run directly from the internet (no download needed):</strong></p>
+            <span class="cmd">curl -sSL https://raw.githubusercontent.com/Sacton86/locolocator/main/locolocator.sh | sudo bash</span>
+            <p><strong>Download first, then run:</strong></p>
+            <span class="cmd">curl -sSL -o locolocator.sh https://raw.githubusercontent.com/Sacton86/locolocator/main/locolocator.sh
+chmod +x locolocator.sh
+sudo bash locolocator.sh</span>
+          </div>
+        </li>
+        <li>
+          <div class="step-bullet">2</div>
+          <div class="step-content">
+            <p>The script will display the LocoLocator banner and immediately begin configuring your network adapter. You will see output similar to:</p>
+            <span class="cmd">====================================================
+       LocoLocator — Radio Provisioning Tool
+====================================================
+
+[*] Detected network interface: eno1
+[*] Configuring Ethernet interface (eno1)...</span>
+            <p>The interface name (<code>eno1</code>, <code>enp3s0</code>, etc.) will reflect your machine's actual Ethernet port — this is auto-detected.</p>
+          </div>
+        </li>
+      </ul>
+
+      <div class="callout-warn">
+        <strong>Missing sshpass</strong>
+        If <code>sshpass</code> is not installed, the script will install it automatically via <code>apt</code>.
+        This requires an internet connection and takes 10–20 seconds. It only happens once.
+      </div>
+    </div>
+  </div>
+
+  <!-- SECTION 3 -->
+  <div class="sop-section">
+    <div class="sop-section-header">
+      <div class="section-num">3</div>
+      <h2>Starting LocoLocator — Windows</h2>
+    </div>
+    <div class="sop-section-body">
+      <p style="margin-bottom:18px;">PowerShell must be opened as Administrator. The script will not run without elevated privileges.</p>
+
+      <ul class="step-list">
+        <li>
+          <div class="step-bullet">1</div>
+          <div class="step-content">
+            <p>Click the <strong>Start</strong> button or press the <strong>Windows key</strong>. Type <code>powershell</code>. <strong>Right-click</strong> "Windows PowerShell" and select <strong>"Run as administrator"</strong>. Click <strong>Yes</strong> on the UAC prompt.</p>
+            <p>Confirm the title bar reads <strong>"Administrator: Windows PowerShell"</strong> before continuing.</p>
+          </div>
+        </li>
+        <li>
+          <div class="step-bullet">2</div>
+          <div class="step-content">
+            <p>Run one of the following commands:</p>
+            <p><strong>Run directly from the internet:</strong></p>
+            <span class="cmd">Invoke-Expression (Invoke-WebRequest -Uri "https://raw.githubusercontent.com/Sacton86/locolocator/main/locolocator.ps1" -UseBasicParsing).Content</span>
+            <p><strong>Download first, then run:</strong></p>
+            <span class="cmd">Invoke-WebRequest -Uri "https://raw.githubusercontent.com/Sacton86/locolocator/main/locolocator.ps1" -OutFile "locolocator.ps1" -UseBasicParsing
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\locolocator.ps1</span>
+          </div>
+        </li>
+        <li>
+          <div class="step-bullet">3</div>
+          <div class="step-content">
+            <p>On the first run, the script will install the <strong>Posh-SSH</strong> PowerShell module automatically. You will see:</p>
+            <span class="cmd">[*] Installing required module 'Posh-SSH'...</span>
+            <p>This takes 20–60 seconds and only happens once. Subsequent runs start immediately.</p>
+          </div>
+        </li>
+      </ul>
+
+      <div class="callout-danger">
+        <strong>Must Run as Administrator</strong>
+        The script adds IP addresses to your network adapter, which requires admin rights.
+        If you see a red error about permissions, close PowerShell and reopen it using
+        "Run as administrator" as described in Step 1.
+      </div>
+    </div>
+  </div>
+
+  <!-- SECTION 4 -->
+  <div class="sop-section">
+    <div class="sop-section-header">
+      <div class="section-num">4</div>
+      <h2>Radio Detection</h2>
+    </div>
+    <div class="sop-section-body">
+      <p style="margin-bottom:18px;">Once started, LocoLocator automatically scans for a connected radio at the three known IP addresses. No action is needed if the radio is detected.</p>
+
+      <ul class="step-list">
+        <li>
+          <div class="step-bullet">1</div>
+          <div class="step-content">
+            <p>The script scans <code>192.168.1.20</code>, <code>192.168.0.218</code>, and <code>192.168.0.219</code> in order. When a radio is found, you will see:</p>
+            <span class="cmd">[+] Radio detected at: 192.168.1.20</span>
+          </div>
+        </li>
+        <li>
+          <div class="step-bullet">2</div>
+          <div class="step-content">
+            <p>A <strong>15-second countdown</strong> begins immediately after detection. This allows the radio to fully boot and stabilize its SSH service before the connection attempt. Do not unplug the radio during this countdown.</p>
+            <span class="cmd">[*] Waiting for device to boot and connect [15s remaining]</span>
+          </div>
+        </li>
+      </ul>
+
+      <div class="callout-warn" style="margin-top: 4px;">
+        <strong>Radio Not Detected?</strong>
+        If the scan fails, a menu appears with three options — see Section 5 below.
+        The most common cause is the radio still booting. Wait 30 seconds and choose Try Again.
+      </div>
+    </div>
+  </div>
+
+  <!-- SECTION 5 -->
+  <div class="sop-section">
+    <div class="sop-section-header">
+      <div class="section-num">5</div>
+      <h2>If the Radio Is Not Found</h2>
+    </div>
+    <div class="sop-section-body">
+      <p style="margin-bottom:18px;">If no radio responds to the scan, LocoLocator displays a recovery menu instead of exiting. You will see:</p>
+
+      <span class="cmd">[!] No radio detected at 192.168.1.20, 192.168.0.218, or 192.168.0.219.
+  1) Try Again
+  2) Enter IP Manually
+  3) Abort
+Choice:</span>
+
+      <ul class="step-list" style="margin-top:20px;">
+        <li>
+          <div class="step-bullet">1</div>
+          <div class="step-content">
+            <p><strong>Try Again (recommended first step)</strong> — Enter <code>1</code> and press Enter. The script immediately re-scans the same three IPs. Use this if the radio was still booting on the first attempt. You can select Try Again as many times as needed.</p>
+          </div>
+        </li>
+        <li>
+          <div class="step-bullet">2</div>
+          <div class="step-content">
+            <p><strong>Enter IP Manually</strong> — Enter <code>2</code> and press Enter, then type the radio's IP address when prompted. Use this only if the radio is known to be at a non-standard address (e.g. already configured to a custom IP).</p>
+            <div class="callout-info">
+              When you enter a manual IP, LocoLocator will attempt all four known credential combinations before prompting for manual login. Credentials are <strong>not</strong> auto-selected by IP for manual entries.
+            </div>
+          </div>
+        </li>
+        <li>
+          <div class="step-bullet">3</div>
+          <div class="step-content">
+            <p><strong>Abort</strong> — Enter <code>3</code> or any other key to exit the script. Use this if the radio appears to be non-responsive or faulty.</p>
+          </div>
+        </li>
+      </ul>
+
+      <p style="margin-top: 18px; font-weight: 600; color: var(--black);">Common reasons a radio is not detected:</p>
+      <ul class="sub-list" style="margin-top:8px;">
+        <li>Radio is still booting — wait 30–60 seconds and choose Try Again</li>
+        <li>PoE injector is not powered — check the power brick and indicator light</li>
+        <li>Ethernet cable is plugged into the wrong port on the PoE injector — the laptop goes into the LAN port, not the POE port</li>
+        <li>Cable is faulty — try a different patch cable</li>
+        <li>Radio has a custom IP not in the scan list — use Manual Entry</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- SECTION 6 -->
+  <div class="sop-section">
+    <div class="sop-section-header">
+      <div class="section-num">6</div>
+      <h2>Authentication</h2>
+    </div>
+    <div class="sop-section-body">
+      <p style="margin-bottom:18px;">After the 15-second boot wait, LocoLocator logs into the radio automatically. Credentials are chosen based on the detected IP — no input is needed for known addresses.</p>
+
+      <table class="ref-table" style="margin-bottom:20px;">
+        <thead>
+          <tr>
+            <th>Detected IP</th>
+            <th>Username</th>
+            <th>Password</th>
+            <th>Radio State</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="label"><code>192.168.1.20</code></td>
+            <td class="detail"><code>ubnt</code></td>
+            <td class="detail"><code>ubnt</code></td>
+            <td class="detail">Factory default — never configured</td>
+          </tr>
+          <tr>
+            <td class="label"><code>192.168.0.218</code></td>
+            <td class="detail"><code>Admin</code></td>
+            <td class="detail"><code>!mpact1234</code></td>
+            <td class="detail">Previously configured as Building Side</td>
+          </tr>
+          <tr>
+            <td class="label"><code>192.168.0.219</code></td>
+            <td class="detail"><code>Admin</code></td>
+            <td class="detail"><code>!mpact1234</code></td>
+            <td class="detail">Previously configured as Sign Side</td>
+          </tr>
+          <tr>
+            <td class="label">Manual IP</td>
+            <td class="detail" colspan="2">All four combinations tried; prompts if all fail</td>
+            <td class="detail">Unknown / custom</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p>A successful login displays:</p>
+      <span class="cmd">[+] Authenticated as 'ubnt'</span>
+
+      <div class="callout-danger" style="margin-top:16px;">
+        <strong>Authentication Failed</strong>
+        If login fails for a manually entered IP, you will be prompted to enter a username and password.
+        If that also fails, the script aborts. Verify the radio is accessible by pinging its IP from a
+        separate terminal window. If you cannot ping it, the physical connection is the issue, not the credentials.
+      </div>
+    </div>
+  </div>
+
+  <!-- SECTION 7 -->
+  <div class="sop-section">
+    <div class="sop-section-header">
+      <div class="section-num">7</div>
+      <h2>Selecting a Role and SSID</h2>
+    </div>
+    <div class="sop-section-body">
+      <p style="margin-bottom:18px;">After authentication, LocoLocator prompts for the radio's role and the wireless SSID. These two inputs are the only manual entries required during a normal provisioning run.</p>
+
+      <ul class="step-list">
+        <li>
+          <div class="step-bullet">1</div>
+          <div class="step-content">
+            <p><strong>Select a role.</strong> The script will display:</p>
+            <span class="cmd">Select configuration for this unit (192.168.1.20):
+  1) Building Side  (AP / Fallback IP: 192.168.0.218)
+  2) Sign Side      (Station / Fallback IP: 192.168.0.219)
+Choice [1 or 2]:</span>
+            <ul class="sub-list" style="margin-top:10px;">
+              <li><strong>Building Side (1)</strong> — Configures the radio as an Access Point. Installs at the building. Fallback IP will be <code>192.168.0.218</code>.</li>
+              <li><strong>Sign Side (2)</strong> — Configures the radio as a Station (client). Installs at the sign. Fallback IP will be <code>192.168.0.219</code>.</li>
+            </ul>
+            <p style="margin-top:10px;">Enter <code>1</code> or <code>2</code> and press <strong>Enter</strong>.</p>
+          </div>
+        </li>
+        <li>
+          <div class="step-bullet">2</div>
+          <div class="step-content">
+            <p><strong>Enter the SSID.</strong> When prompted, type the wireless network name for this radio pair and press <strong>Enter</strong>. Press Enter without typing anything to use the default <code>Impact</code>.</p>
+            <span class="cmd">Enter Wireless SSID [Default: Impact]:</span>
+            <div class="callout-warn">
+              The SSID is case-sensitive and must match exactly between the Building Side and Sign Side radios.
+              If you are provisioning a pair, you only enter the SSID once — the second radio inherits it automatically.
+            </div>
+          </div>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- SECTION 8 -->
+  <div class="sop-section">
+    <div class="sop-section-header">
+      <div class="section-num">8</div>
+      <h2>Configuration Transfer and Reboot</h2>
+    </div>
+    <div class="sop-section-body">
+      <p style="margin-bottom:18px;">Once the role and SSID are confirmed, LocoLocator handles the rest automatically. No further input is required until the radio finishes rebooting.</p>
+
+      <ul class="step-list">
+        <li>
+          <div class="step-bullet">1</div>
+          <div class="step-content">
+            <p>The configuration file is generated and transferred to the radio via SSH:</p>
+            <span class="cmd">[*] Generating Building Side config for SSID 'Impact'...
+[*] Transferring configuration via SSH...</span>
+          </div>
+        </li>
+        <li>
+          <div class="step-bullet">2</div>
+          <div class="step-content">
+            <p>The configuration is written to flash memory and the radio reboots:</p>
+            <span class="cmd">[*] Writing to flash and rebooting radio...</span>
+          </div>
+        </li>
+        <li>
+          <div class="step-bullet">3</div>
+          <div class="step-content">
+            <p>A <strong>15-second countdown</strong> runs to allow the radio to complete its reboot cycle. Do not unplug the radio or close the terminal during this period.</p>
+            <span class="cmd">[*] Waiting for radio to reboot successfully [15s remaining]</span>
+          </div>
+        </li>
+        <li>
+          <div class="step-bullet">4</div>
+          <div class="step-content">
+            <p>A success summary confirms the completed configuration:</p>
+            <span class="cmd">====================================================
+  [✔] Radio successfully configured and rebooted.
+      SSID: Impact
+      Role: Building Side (AP) — 192.168.0.218
+====================================================</span>
+          </div>
+        </li>
+      </ul>
+
+      <div class="callout-ok">
+        <strong>Configuration Complete</strong>
+        At this point the radio is fully provisioned. The fallback IP shown in the summary
+        (<code>192.168.0.218</code> or <code>192.168.0.219</code>) is what the radio will answer
+        on if it cannot obtain a DHCP address from the network.
+      </div>
+    </div>
+  </div>
+
+  <!-- SECTION 9 -->
+  <div class="sop-section">
+    <div class="sop-section-header">
+      <div class="section-num">9</div>
+      <h2>Provisioning the Paired Radio</h2>
+    </div>
+    <div class="sop-section-body">
+      <p style="margin-bottom:18px;">After each radio is provisioned, LocoLocator offers to immediately configure its partner — using the same SSID — without restarting the script.</p>
+
+      <ul class="step-list">
+        <li>
+          <div class="step-bullet">1</div>
+          <div class="step-content">
+            <p>After a <strong>Building Side (218)</strong> is provisioned, the script asks:</p>
+            <span class="cmd">Provision the paired Sign Side (219) radio now? [y/N]:</span>
+            <p>After a <strong>Sign Side (219)</strong> is provisioned, the script asks:</p>
+            <span class="cmd">Provision the paired Building Side (218) radio now? [y/N]:</span>
+          </div>
+        </li>
+        <li>
+          <div class="step-bullet">2</div>
+          <div class="step-content">
+            <p>Enter <code>y</code> and press Enter to continue, or press Enter alone (or <code>n</code>) to skip.</p>
+          </div>
+        </li>
+        <li>
+          <div class="step-bullet">3</div>
+          <div class="step-content">
+            <p>If you choose yes, the script instructs you to swap the radio:</p>
+            <span class="cmd">[!] Unplug the current radio and connect the Sign Side radio.</span>
+            <p>Unplug the PoE cable from the first radio, connect the second radio to the PoE injector, and press <strong>Enter</strong> when it is powered on and connected.</p>
+          </div>
+        </li>
+        <li>
+          <div class="step-bullet">4</div>
+          <div class="step-content">
+            <p>The paired radio is detected, authenticated, and configured automatically using the same SSID. You will <strong>not</strong> be prompted for the SSID again — it is inherited from the first radio.</p>
+          </div>
+        </li>
+        <li>
+          <div class="step-bullet">5</div>
+          <div class="step-content">
+            <p>After both radios are done, the script returns to the main loop and asks if you want to configure another independent unit.</p>
+          </div>
+        </li>
+      </ul>
+
+      <div class="callout-info">
+        <strong>Typical Pair Workflow</strong>
+        Connect Building Side radio → run script → select role 1 → enter SSID → wait for reboot →
+        answer <strong>y</strong> to pair prompt → swap to Sign Side radio → press Enter → done.
+        Total time per pair is approximately 3–5 minutes including wait times.
+      </div>
+    </div>
+  </div>
+
+  <!-- SECTION 10 -->
+  <div class="sop-section">
+    <div class="sop-section-header">
+      <div class="section-num">10</div>
+      <h2>Configuring Multiple Units in One Session</h2>
+    </div>
+    <div class="sop-section-body">
+      <p style="margin-bottom:18px;">After each provisioning job (including any paired radio), LocoLocator asks if you want to start a new independent unit. You do not need to restart the script between jobs.</p>
+
+      <span class="cmd">Configure another radio? [y/N]:</span>
+
+      <ul class="step-list" style="margin-top:20px;">
+        <li>
+          <div class="step-bullet">1</div>
+          <div class="step-content">
+            <p>Enter <code>y</code> to start another provisioning job. The script will prompt you to unplug the current radio and connect the next one.</p>
+          </div>
+        </li>
+        <li>
+          <div class="step-bullet">2</div>
+          <div class="step-content">
+            <p>Connect the next radio, press <strong>Enter</strong>, and the full provisioning sequence repeats from the scan step — including the SSID prompt, so a different SSID can be used for each new job.</p>
+          </div>
+        </li>
+        <li>
+          <div class="step-bullet">3</div>
+          <div class="step-content">
+            <p>Enter <code>n</code> or press Enter alone when finished. The session ends cleanly:</p>
+            <span class="cmd">[*] LocoLocator session complete. Goodbye!</span>
+          </div>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- SECTION 11 -->
+  <div class="sop-section">
+    <div class="sop-section-header">
+      <div class="section-num">11</div>
+      <h2>Troubleshooting Common Issues</h2>
+    </div>
+    <div class="sop-section-body">
+
+      <table class="ref-table">
+        <thead>
+          <tr>
+            <th style="width:35%">Symptom / Error</th>
+            <th>Cause &amp; Resolution</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="label">Radio not detected on first scan</td>
+            <td class="detail">
+              The radio is likely still booting. Choose <strong>1) Try Again</strong> after waiting
+              30–60 seconds. If repeated scans fail, verify the PoE injector is powered,
+              the cable is in the correct port (laptop → LAN, radio → POE), and the
+              cable itself is not faulty.
+            </td>
+          </tr>
+          <tr>
+            <td class="label">Authentication failed</td>
+            <td class="detail">
+              For a manually entered IP, all four standard credential combinations were tried and
+              failed. Confirm the radio's username and password, then enter them manually when prompted.
+              If you cannot log in at all, the radio may need a factory reset (hold the reset
+              button for 10 seconds until the LED flashes).
+            </td>
+          </tr>
+          <tr>
+            <td class="label">Could not detect an active Ethernet interface (Linux)</td>
+            <td class="detail">
+              No interface starting with <code>eth</code> or <code>en</code> was found in an up state.
+              Run <code>ip link show</code> to list interfaces. If your Ethernet port is down,
+              connect the cable first — the interface must be physically active to be detected.
+              If the interface has an unusual name, edit the <code>IFACE</code> detection line in the script.
+            </td>
+          </tr>
+          <tr>
+            <td class="label">Could not detect an active Ethernet adapter (Windows)</td>
+            <td class="detail">
+              No adapter with Status "Up" matching Ethernet naming conventions was found.
+              Open Device Manager and confirm the Ethernet adapter is enabled and has a driver installed.
+              A USB-to-Ethernet adapter may use a non-standard name — check <code>Get-NetAdapter</code>
+              in PowerShell to see all adapters.
+            </td>
+          </tr>
+          <tr>
+            <td class="label">Posh-SSH install fails (Windows)</td>
+            <td class="detail">
+              The machine may not have access to the PowerShell Gallery, or TLS 1.2 is not enabled.
+              Run the following two commands in an Admin PowerShell and then re-run the script:<br/><br/>
+              <code>[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12</code><br/>
+              <code>Install-Module -Name Posh-SSH -Force -Scope CurrentUser</code>
+            </td>
+          </tr>
+          <tr>
+            <td class="label">Both radios configured but they won't link</td>
+            <td class="detail">
+              Verify both radios were given the <strong>exact same SSID</strong> — including capitalization.
+              If you used the paired-radio follow-up workflow, SSIDs match automatically.
+              If you ran two separate sessions and typed the SSID manually each time, a typo will
+              prevent the link. Re-provision one radio using the correct SSID to fix it.
+            </td>
+          </tr>
+          <tr>
+            <td class="label">Script exits immediately on Linux with "permission denied"</td>
+            <td class="detail">
+              The script was not run with <code>sudo</code>. Re-run it as:
+              <code>sudo bash locolocator.sh</code>. Running with <code>./locolocator.sh</code>
+              alone will fail if you are not already root.
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+    </div>
+  </div>
+
+  <!-- SECTION 12 -->
+  <div class="sop-section">
+    <div class="sop-section-header">
+      <div class="section-num">12</div>
+      <h2>Quick Reference</h2>
+    </div>
+    <div class="sop-section-body">
+
+      <p style="margin-bottom:16px; font-weight:600; color:var(--black);">Scan Targets</p>
+      <table class="ref-table" style="margin-bottom:28px;">
+        <thead>
+          <tr><th>IP Address</th><th>Role</th><th>Credentials Used</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="label"><code>192.168.1.20</code></td>
+            <td class="detail">Factory default (any role)</td>
+            <td class="detail"><code>ubnt / ubnt</code></td>
+          </tr>
+          <tr>
+            <td class="label"><code>192.168.0.218</code></td>
+            <td class="detail">Building Side (AP)</td>
+            <td class="detail"><code>Admin / !mpact1234</code></td>
+          </tr>
+          <tr>
+            <td class="label"><code>192.168.0.219</code></td>
+            <td class="detail">Sign Side (Station)</td>
+            <td class="detail"><code>Admin / !mpact1234</code></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <hr class="divider" />
+
+      <p style="margin-bottom:16px; font-weight:600; color:var(--black);">Run Commands</p>
+      <table class="ref-table" style="margin-bottom:28px;">
+        <thead>
+          <tr><th>Platform</th><th>Command</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="label">Linux</td>
+            <td class="detail"><code>curl -sSL https://raw.githubusercontent.com/Sacton86/locolocator/main/locolocator.sh | sudo bash</code></td>
+          </tr>
+          <tr>
+            <td class="label">Windows (Admin PowerShell)</td>
+            <td class="detail"><code>Invoke-Expression (Invoke-WebRequest -Uri "https://raw.githubusercontent.com/Sacton86/locolocator/main/locolocator.ps1" -UseBasicParsing).Content</code></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <hr class="divider" />
+
+      <p style="margin-bottom:16px; font-weight:600; color:var(--black);">Provisioning Flow at a Glance</p>
+      <ul class="sub-list">
+        <li>Connect radio to PoE injector → connect laptop to PoE injector LAN port</li>
+        <li>Run LocoLocator with sudo / as Administrator</li>
+        <li>Wait for radio detection and 15-second boot countdown</li>
+        <li>Select role: <strong>1</strong> = Building Side, <strong>2</strong> = Sign Side</li>
+        <li>Enter SSID (or press Enter for default <code>Impact</code>)</li>
+        <li>Wait for config transfer and 15-second reboot countdown</li>
+        <li>Answer <strong>y</strong> to provision the paired radio, or <strong>n</strong> to skip</li>
+        <li>Repeat for additional pairs as needed, then exit with <strong>n</strong></li>
+      </ul>
+
+    </div>
+  </div>
+
+</main>
+
+<!-- FOOTER -->
+<footer>
+  <p>Impact LED Signs &nbsp;·&nbsp; <span>Internal Use Only — Technician SOP</span> &nbsp;·&nbsp; LocoLocator v1.0.0 &nbsp;·&nbsp; August 2026</p>
+</footer>
+
+</body>
+</html>
