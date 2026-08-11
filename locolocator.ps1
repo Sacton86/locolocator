@@ -8,6 +8,9 @@
     Posh-SSH module is auto-installed if missing.
 #>
 
+# Bypass execution policy for this process so Posh-SSH format files can load
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+
 # --- Admin check ---
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
     [Security.Principal.WindowsBuiltInRole]::Administrator)) {
