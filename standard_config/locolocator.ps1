@@ -64,14 +64,67 @@ function Add-IPIfMissing {
 Add-IPIfMissing -AdapterName $adapter.Name -IP "192.168.1.50" -Prefix 24
 Add-IPIfMissing -AdapterName $adapter.Name -IP "192.168.0.50" -Prefix 24
 
-# --- 15-second countdown display ---
-function Invoke-Countdown {
-    param([int]$Seconds, [string]$Label)
-    for ($i = $Seconds; $i -gt 0; $i--) {
-        Write-Host "`r$Label [$i s remaining]  " -NoNewline -ForegroundColor Yellow
-        Start-Sleep -Seconds 1
+# --- Also make sure this adapter can pick up a real DHCP lease, in addition
+#     to the two static addresses above. A radio can end up on either a
+#     DHCP-provided subnet (if the site network offers one) or its static
+#     fallback - this makes sure the laptop itself is reachable on whichever
+#     one actually shows up, not just the two hardcoded /24s. Best-effort: an
+#     isolated bench link with no DHCP server just leaves this unanswered. ---
+try { Set-NetIPInterface -InterfaceAlias $adapter.Name -Dhcp Enabled -ErrorAction Stop } catch { }
+Start-Sleep -Seconds 2
+$dhcpLease = Get-NetIPAddress -InterfaceAlias $adapter.Name -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+             Where-Object { $_.PrefixOrigin -eq 'Dhcp' } | Select-Object -First 1
+if ($dhcpLease) {
+    Write-Host "[+] Also has a DHCP lease on $($adapter.Name): $($dhcpLease.IPAddress)" -ForegroundColor Green
+} else {
+    Write-Host "[*] No DHCP server answered on $($adapter.Name) yet - using the static addresses only (normal for an isolated bench link)." -ForegroundColor Yellow
+}
+
+# --- Poll a TCP port until it accepts a connection (confirms sshd is actually up,
+#     since airOS answers ping before its services finish starting) ---
+function Wait-ForPort {
+    param([string]$IP, [int]$Port, [int]$TimeoutSec = 30, [string]$Label = "Waiting for service")
+    $waited = 0
+    Write-Host $Label -NoNewline -ForegroundColor Yellow
+    while ($true) {
+        $ok = Test-NetConnection -ComputerName $IP -Port $Port -WarningAction SilentlyContinue -InformationLevel Quiet -ErrorAction SilentlyContinue
+        if ($ok) {
+            Write-Host " [ready, ${waited}s]" -ForegroundColor Green
+            return $true
+        }
+        if ($waited -ge $TimeoutSec) {
+            Write-Host " [not ready after ${TimeoutSec}s, continuing anyway]" -ForegroundColor Yellow
+            return $false
+        }
+        Write-Host "." -NoNewline -ForegroundColor Yellow
+        Start-Sleep -Seconds 2
+        $waited += 2
     }
-    Write-Host "`r$Label [done]                    " -ForegroundColor Green
+}
+
+# --- Poll ping until a host responds (or stops responding), with a hard timeout ---
+function Wait-ForPing {
+    param([string]$IP, [int]$TimeoutSec = 90, [string]$Label = "Waiting for device", [string]$Mode = "up")
+    $waited = 0
+    Write-Host $Label -NoNewline -ForegroundColor Yellow
+    while ($true) {
+        $alive = Test-Connection -ComputerName $IP -Count 1 -Quiet -ErrorAction SilentlyContinue
+        if ($Mode -eq "up" -and $alive) {
+            Write-Host " [online, ${waited}s]" -ForegroundColor Green
+            return $true
+        }
+        if ($Mode -eq "down" -and -not $alive) {
+            Write-Host " [offline, ${waited}s]" -ForegroundColor Green
+            return $true
+        }
+        if ($waited -ge $TimeoutSec) {
+            Write-Host " [timed out after ${TimeoutSec}s]" -ForegroundColor Red
+            return $false
+        }
+        Write-Host "." -NoNewline -ForegroundColor Yellow
+        Start-Sleep -Seconds 2
+        $waited += 2
+    }
 }
 
 # --- SSH helpers using Posh-SSH ---
@@ -94,28 +147,185 @@ function Invoke-RadioCommand {
 
 function Send-ConfigFile {
     param($SessionId, [string]$Content, [string]$IP, [string]$User, [string]$Pass)
-    # Write content to a local temp file, then SCP it to the radio
+    # Write content to a local temp file, then SCP it to the radio.
+    # Returns the local file's byte length so the caller can verify the transfer.
     $tmpFile = [System.IO.Path]::GetTempFileName()
     try {
         [System.IO.File]::WriteAllText($tmpFile, $Content, [System.Text.Encoding]::UTF8)
+        $localSize = (Get-Item $tmpFile).Length
         $secPass = ConvertTo-SecureString $Pass -AsPlainText -Force
         $cred = New-Object PSCredential($User, $secPass)
         Set-SCPItem -ComputerName $IP -Credential $cred -AcceptKey $true `
                     -Path $tmpFile -Destination "/tmp/system.cfg" -ErrorAction Stop
+        return $localSize
     } finally {
         Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue
     }
 }
 
-# --- Scan for radio at known IPs ---
-function Find-Radio {
-    $candidates = @("192.168.1.20", "192.168.0.218", "192.168.0.219")
-    foreach ($ip in $candidates) {
-        if (Test-Connection -ComputerName $ip -Count 1 -Quiet -ErrorAction SilentlyContinue) {
-            return $ip
+# --- Confirm a radio has actually rebooted: waits for it to drop offline, come
+#     back online, and start accepting SSH connections again - instead of
+#     guessing with a fixed sleep. Returns @{ Success; IP } - IP is normally
+#     the same as the input, but if the radio comes back with a *different*
+#     DHCP lease than it had before (which the config we just wrote allows,
+#     since dhcpc tries DHCP before falling back to the static address), we
+#     re-discover it by broadcast and report the new address instead of just
+#     timing out against the old one. ---
+function Wait-ForReboot {
+    param([string]$IP, [string]$User, [string]$Pass)
+
+    if (-not (Wait-ForPing -IP $IP -TimeoutSec 20 -Label "[*] Confirming radio dropped offline for reboot" -Mode "down")) {
+        Write-Host "[!] Radio never went offline - it may reboot quickly, or the reboot command may not have taken effect. Continuing to monitor..." -ForegroundColor Yellow
+    }
+
+    if (-not (Wait-ForPing -IP $IP -TimeoutSec 90 -Label "[*] Waiting for radio to come back online at $IP")) {
+        Write-Host "[!] No response from $IP yet - broadcasting to see if it came back at a different DHCP address..." -ForegroundColor Yellow
+        $found = Get-UbntDiscoveryReplies -TimeoutSec 3.0
+        $other = @($found.Keys | Where-Object { $_ -ne $IP }) | Select-Object -First 1
+        if ($other) {
+            Write-Host "[+] Radio reappeared at $other (new DHCP lease) - continuing verification there." -ForegroundColor Green
+            $IP = $other
+        } else {
+            Write-Host "[!] No response from $IP after 90s, and nothing new answered a discovery broadcast." -ForegroundColor Red
+            $keepWaiting = Read-Host "Keep waiting another 2 minutes? [Y/n]"
+            if ($keepWaiting -match '^[Nn]$') { return @{ Success = $false; IP = $IP } }
+            if (-not (Wait-ForPing -IP $IP -TimeoutSec 120 -Label "[*] Still waiting for radio")) { return @{ Success = $false; IP = $IP } }
         }
     }
-    return $null
+
+    if (-not (Wait-ForPort -IP $IP -Port 22 -TimeoutSec 60 -Label "[*] Waiting for SSH to come back up")) {
+        Write-Host "[!] Radio is pingable but SSH isn't answering yet." -ForegroundColor Yellow
+        if (-not (Wait-ForPort -IP $IP -Port 22 -TimeoutSec 30 -Label "[*] One more check for SSH")) { return @{ Success = $false; IP = $IP } }
+    }
+
+    # Final sanity check: actually log in, don't just trust the open port.
+    $testSession = New-RadioSession -IP $IP -User $User -Pass $Pass
+    if (-not $testSession) {
+        Write-Host "[!] SSH port is open but login isn't succeeding yet - giving it a few more seconds..." -ForegroundColor Yellow
+        Start-Sleep -Seconds 5
+        $testSession = New-RadioSession -IP $IP -User $User -Pass $Pass
+        if (-not $testSession) { return @{ Success = $false; IP = $IP } }
+    }
+    Remove-SSHSession -SessionId $testSession.SessionId -ErrorAction SilentlyContinue | Out-Null
+    return @{ Success = $true; IP = $IP }
+}
+
+# --- Best-effort decode of a Ubiquiti discovery-protocol reply (TLV body
+#     after a 4-byte header). Never throws - a field is simply omitted if the
+#     packet doesn't look like what we expect, since the IP address (which is
+#     all that actually matters for connecting) comes from the UDP sender
+#     address, not from this payload. ---
+function ConvertFrom-UbntReply {
+    param([byte[]]$Data)
+    $info = @{}
+    try {
+        $pos = 4
+        while ($pos + 3 -le $Data.Length) {
+            $type = $Data[$pos]
+            $len = ([int]$Data[$pos + 1] -shl 8) -bor [int]$Data[$pos + 2]
+            $pos += 3
+            if ($pos + $len -gt $Data.Length) { break }
+            $value = if ($len -gt 0) { $Data[$pos..($pos + $len - 1)] } else { @() }
+            $pos += $len
+            if (($type -eq 1 -or $type -eq 2) -and $len -ge 6 -and -not $info.ContainsKey('mac')) {
+                $info['mac'] = ($value[0..5] | ForEach-Object { $_.ToString("x2") }) -join ":"
+            } elseif ($type -eq 3 -and -not $info.ContainsKey('firmware')) {
+                $info['firmware'] = [System.Text.Encoding]::ASCII.GetString($value).Trim([char]0)
+            } elseif ($type -eq 0x0b -and -not $info.ContainsKey('hostname')) {
+                $info['hostname'] = [System.Text.Encoding]::ASCII.GetString($value).Trim([char]0)
+            } elseif (($type -eq 0x0c -or $type -eq 0x14) -and -not $info.ContainsKey('platform')) {
+                $info['platform'] = [System.Text.Encoding]::ASCII.GetString($value).Trim([char]0)
+            }
+        }
+    } catch { }
+    return $info
+}
+
+# --- Broadcast the Ubiquiti discovery probe (UDP/10001) and collect every
+#     reply. This finds a radio's real IP whether it ended up there via DHCP
+#     or its static fallback - every airOS/UniFi device answers this
+#     broadcast regardless of how it got its address, which a fixed
+#     candidate-IP guess list can never do. Returns @{ ip = info-hashtable }. ---
+function Get-UbntDiscoveryReplies {
+    param([double]$TimeoutSec = 2.0)
+    $found = @{}
+    $udp = New-Object System.Net.Sockets.UdpClient
+    try {
+        $udp.EnableBroadcast = $true
+        $udp.Client.ReceiveTimeout = 300
+        $udp.Client.Bind((New-Object System.Net.IPEndPoint([System.Net.IPAddress]::Any, 0)))
+        $probe = [byte[]](1, 0, 0, 0)
+        $endpoint = New-Object System.Net.IPEndPoint([System.Net.IPAddress]::Broadcast, 10001)
+        $udp.Send($probe, $probe.Length, $endpoint) | Out-Null
+    } catch {
+        $udp.Close()
+        return $found
+    }
+
+    $deadline = (Get-Date).AddSeconds($TimeoutSec)
+    while ((Get-Date) -lt $deadline) {
+        try {
+            $remote = New-Object System.Net.IPEndPoint([System.Net.IPAddress]::Any, 0)
+            $data = $udp.Receive([ref]$remote)
+            $ip = $remote.Address.ToString()
+            if (-not $found.ContainsKey($ip)) {
+                $found[$ip] = ConvertFrom-UbntReply -Data $data
+            }
+        } catch {
+            continue
+        }
+    }
+    $udp.Close()
+    return $found
+}
+
+# --- Combined scan: broadcast discovery (primary) plus a direct ping of the
+#     known static/fallback addresses (backup, in case broadcast is filtered
+#     by a managed switch or VLAN). Returns @{ ip = info-hashtable }. ---
+function Get-RadioCandidates {
+    $found = Get-UbntDiscoveryReplies -TimeoutSec 2.0
+    $fallback = @("192.168.1.20", "192.168.0.218", "192.168.0.219")
+    foreach ($ip in $fallback) {
+        if (-not $found.ContainsKey($ip)) {
+            if (Test-Connection -ComputerName $ip -Count 1 -Quiet -ErrorAction SilentlyContinue) {
+                $found[$ip] = @{}
+            }
+        }
+    }
+    return $found
+}
+
+function Format-RadioLabel {
+    param($Info)
+    $label = if ($Info.platform) { $Info.platform } else { "Ubiquiti airOS device" }
+    $bits = @()
+    if ($Info.hostname) { $bits += $Info.hostname }
+    if ($Info.mac) { $bits += $Info.mac }
+    if ($bits.Count -gt 0) { $label = "$label ($($bits -join ' / '))" }
+    return $label
+}
+
+# --- Keep scanning until at least one radio answers, printing elapsed time so
+#     the technician knows it's working rather than hung - a previously-
+#     configured radio can take up to ~2 minutes to time out its DHCP attempt
+#     and fall back to its static address. ---
+function Wait-ForRadioScan {
+    param([int]$MaxWaitSec = 150)
+    $waited = 0
+    Write-Host "[*] Broadcasting discovery probe + checking known addresses" -NoNewline -ForegroundColor Yellow
+    while ($true) {
+        $found = Get-RadioCandidates
+        if ($found.Count -gt 0) {
+            Write-Host " [$($found.Count) device(s) found, ${waited}s]" -ForegroundColor Green
+            return $found
+        }
+        if ($waited -ge $MaxWaitSec) {
+            Write-Host " [none found after ${waited}s]" -ForegroundColor Yellow
+            return $found
+        }
+        Write-Host "." -NoNewline -ForegroundColor Yellow
+        $waited += 2
+    }
 }
 
 # --- Config generators (single-quote here-strings so $ is literal; ##SSID## replaced at runtime) ---
@@ -420,35 +630,66 @@ function Invoke-Provision {
     Write-Host ""
     Write-Host "[*] Scanning for connected radio..." -ForegroundColor Yellow
 
-    $foundIP = Find-Radio
-
+    $foundIP = $null
+    $foundInfo = @{}
     while (-not $foundIP) {
-        Write-Host "[!] No radio detected at 192.168.1.20, 192.168.0.218, or 192.168.0.219." -ForegroundColor Red
-        Write-Host "  1) Try Again"         -ForegroundColor Cyan
-        Write-Host "  2) Enter IP Manually" -ForegroundColor Cyan
-        Write-Host "  3) Abort"             -ForegroundColor Cyan
-        $scanChoice = Read-Host "Choice"
-        switch ($scanChoice) {
-            "1" {
-                Write-Host "[*] Rescanning..." -ForegroundColor Yellow
-                $foundIP = Find-Radio
-            }
-            "2" {
-                $foundIP = Read-Host "Enter radio IP (e.g. 192.168.1.20)"
-                if (-not $foundIP) {
-                    Write-Host "[!] No IP entered." -ForegroundColor Red
-                    $foundIP = $null
+        $candidates = Wait-ForRadioScan -MaxWaitSec 150
+
+        if ($candidates.Count -eq 1) {
+            $foundIP = @($candidates.Keys)[0]
+            $foundInfo = $candidates[$foundIP]
+            continue
+        }
+        if ($candidates.Count -gt 1) {
+            while (-not $foundIP) {
+                Write-Host "Multiple Ubiquiti devices answered - select the one connected to THIS cable:" -ForegroundColor Cyan
+                $ips = @($candidates.Keys)
+                for ($i = 0; $i -lt $ips.Count; $i++) {
+                    Write-Host "  $($i+1)) $($ips[$i]) - $(Format-RadioLabel -Info $candidates[$ips[$i]])" -ForegroundColor Cyan
+                }
+                $pick = Read-Host "Choice"
+                $idx = 0
+                if ([int]::TryParse($pick, [ref]$idx) -and $idx -ge 1 -and $idx -le $ips.Count) {
+                    $foundIP = $ips[$idx - 1]
+                    $foundInfo = $candidates[$foundIP]
+                } else {
+                    Write-Host "[!] Invalid selection." -ForegroundColor Red
                 }
             }
-            default {
-                Write-Host "[!] Aborting." -ForegroundColor Red
-                return
+            continue
+        }
+
+        Write-Host "[!] No radio answered a discovery broadcast or the known fallback addresses." -ForegroundColor Red
+        # Labeled loop: PowerShell's `break` inside a switch only exits the
+        # switch itself (unlike bash's `case`), so "Keep Scanning" needs an
+        # explicit labeled break to drop out of this menu and re-scan.
+        :menuLoop while (-not $foundIP) {
+            Write-Host "  1) Keep Scanning"      -ForegroundColor Cyan
+            Write-Host "  2) Enter IP Manually" -ForegroundColor Cyan
+            Write-Host "  3) Abort"             -ForegroundColor Cyan
+            $scanChoice = Read-Host "Choice"
+            switch ($scanChoice) {
+                "1" { break menuLoop }
+                "2" {
+                    $foundIP = Read-Host "Enter radio IP (e.g. 192.168.1.20)"
+                    if (-not $foundIP) {
+                        Write-Host "[!] No IP entered." -ForegroundColor Red
+                        $foundIP = $null
+                    }
+                }
+                default {
+                    Write-Host "[!] Aborting." -ForegroundColor Red
+                    return
+                }
             }
         }
     }
 
     Write-Host "[+] Radio detected at: $foundIP" -ForegroundColor Green
-    Invoke-Countdown -Seconds 15 -Label "[*] Waiting for device to boot and connect"
+    if ($foundInfo.Count -gt 0) {
+        Write-Host "    $(Format-RadioLabel -Info $foundInfo)" -ForegroundColor Green
+    }
+    Wait-ForPort -IP $foundIP -Port 22 -TimeoutSec 30 -Label "[*] Waiting for SSH to be ready" | Out-Null
 
     # --- Determine credentials by IP ---
     $validUser = $null
@@ -503,31 +744,51 @@ function Invoke-Provision {
     Write-Host "[+] Authenticated as '$validUser'" -ForegroundColor Green
     Write-Host ""
 
-    # --- Role selection ---
+    # --- Role and SSID selection, with a confirmation step before anything is
+    #     flashed so a wrong menu pick can be caught before it's written. ---
     $roleChoice = $null
-    if ($ForcedRole) {
-        $roleChoice = $ForcedRole
-        if ($roleChoice -eq "1") {
-            Write-Host "[*] Configuring as: Building Side (AP / 192.168.0.218)" -ForegroundColor Cyan
-        } else {
-            Write-Host "[*] Configuring as: Sign Side (Station / 192.168.0.219)" -ForegroundColor Cyan
-        }
-    } else {
-        Write-Host "Select configuration for this unit ($foundIP):" -ForegroundColor Cyan
-        Write-Host "  1) Building Side  (AP / Fallback IP: 192.168.0.218)" -ForegroundColor Cyan
-        Write-Host "  2) Sign Side      (Station / Fallback IP: 192.168.0.219)" -ForegroundColor Cyan
-        $roleChoice = Read-Host "Choice [1 or 2]"
-    }
-
-    # --- SSID selection ---
     $customSSID = $null
-    if ($PresetSSID) {
-        $customSSID = $PresetSSID
-        Write-Host "[*] Using SSID: $customSSID" -ForegroundColor Cyan
+    while ($true) {
+        if ($ForcedRole) {
+            $roleChoice = $ForcedRole
+        } elseif (-not $roleChoice) {
+            Write-Host "Select configuration for this unit ($foundIP):" -ForegroundColor Cyan
+            Write-Host "  1) Building Side  (AP / Fallback IP: 192.168.0.218)" -ForegroundColor Cyan
+            Write-Host "  2) Sign Side      (Station / Fallback IP: 192.168.0.219)" -ForegroundColor Cyan
+            $roleChoice = Read-Host "Choice [1 or 2]"
+        }
+
+        if ($roleChoice -ne "1" -and $roleChoice -ne "2") {
+            Write-Host "[!] Invalid selection. Aborting." -ForegroundColor Red
+            return
+        }
+
+        if ($PresetSSID) {
+            $customSSID = $PresetSSID
+        } elseif (-not $customSSID) {
+            $customSSID = Read-Host "Enter Wireless SSID [Default: Impact]"
+            if (-not $customSSID) { $customSSID = "Impact" }
+        }
+
+        $roleLabel = if ($roleChoice -eq "1") { "Building Side (AP) - 192.168.0.218" } else { "Sign Side (Station) - 192.168.0.219" }
         Write-Host ""
-    } else {
-        $customSSID = Read-Host "Enter Wireless SSID [Default: Impact]"
-        if (-not $customSSID) { $customSSID = "Impact" }
+        Write-Host "----------------------------------------------------" -ForegroundColor Cyan
+        Write-Host "About to flash $foundIP`:" -ForegroundColor Cyan
+        Write-Host "  Role: $roleLabel" -ForegroundColor Cyan
+        Write-Host "  SSID: $customSSID" -ForegroundColor Cyan
+        Write-Host "----------------------------------------------------" -ForegroundColor Cyan
+        $confirm = Read-Host "Proceed with this configuration? [Y/n]"
+        if ($confirm -match '^[Nn]$') {
+            if ($ForcedRole -or $PresetSSID) {
+                Write-Host "[!] Aborting this radio." -ForegroundColor Red
+                return
+            }
+            Write-Host "[*] Let's redo that." -ForegroundColor Yellow
+            $roleChoice = $null
+            $customSSID = $null
+            continue
+        }
+        break
     }
 
     # --- Generate config ---
@@ -550,32 +811,53 @@ function Invoke-Provision {
         return
     }
 
+    $rebootTriggered = $false
     try {
-        # Transfer config
+        # Transfer config, then verify it landed intact before touching flash/reboot
         Write-Host "[*] Transferring configuration via SCP..." -ForegroundColor Yellow
-        Send-ConfigFile -SessionId $session.SessionId -Content $cfgContent `
+        $localSize = Send-ConfigFile -SessionId $session.SessionId -Content $cfgContent `
                         -IP $foundIP -User $validUser -Pass $validPass
+
+        $remoteSize = ((Invoke-RadioCommand -SessionId $session.SessionId -Command "wc -c < /tmp/system.cfg") -join "").Trim()
+
+        if (-not $remoteSize -or [int]$remoteSize -ne [int]$localSize) {
+            Write-Host "[!] Config transfer verification failed (local $localSize bytes vs remote '$remoteSize' bytes)." -ForegroundColor Red
+            Write-Host "[!] Refusing to write to flash or reboot - the radio still has its previous config." -ForegroundColor Red
+            return
+        }
+        Write-Host "[+] Config verified on device ($remoteSize bytes)." -ForegroundColor Green
 
         # Write to flash and reboot
         Write-Host "[*] Writing to flash and rebooting radio..." -ForegroundColor Yellow
         Invoke-RadioCommand -SessionId $session.SessionId -Command "cfgmtd -w -p /etc/ && reboot"
+        $rebootTriggered = $true
     } catch {
         Write-Host "[!] Error during provisioning: $_" -ForegroundColor Red
     } finally {
         Remove-SSHSession -SessionId $session.SessionId -ErrorAction SilentlyContinue | Out-Null
     }
 
-    Invoke-Countdown -Seconds 15 -Label "[*] Waiting for radio to reboot successfully"
+    if (-not $rebootTriggered) { return }
 
-    Write-Host "====================================================" -ForegroundColor Green
-    Write-Host "  [OK] Radio successfully configured and rebooted.  " -ForegroundColor Green
-    Write-Host "       SSID: $customSSID"                             -ForegroundColor Green
-    if ($roleChoice -eq "1") {
-        Write-Host "       Role: Building Side (AP) - 192.168.0.218"  -ForegroundColor Green
+    $rebootResult = Wait-ForReboot -IP $foundIP -User $validUser -Pass $validPass
+    if ($rebootResult.Success) {
+        Write-Host "====================================================" -ForegroundColor Green
+        Write-Host "  [OK] Radio rebooted and verified back online.     " -ForegroundColor Green
+        Write-Host "       SSID: $customSSID"                             -ForegroundColor Green
+        if ($roleChoice -eq "1") {
+            Write-Host "       Role: Building Side (AP) - fallback 192.168.0.218" -ForegroundColor Green
+        } else {
+            Write-Host "       Role: Sign Side (Station) - fallback 192.168.0.219" -ForegroundColor Green
+        }
+        Write-Host "       Answering now at: $($rebootResult.IP)"         -ForegroundColor Green
+        Write-Host "====================================================" -ForegroundColor Green
     } else {
-        Write-Host "       Role: Sign Side (Station) - 192.168.0.219" -ForegroundColor Green
+        Write-Host "====================================================" -ForegroundColor Red
+        Write-Host "  [!] Config was sent, but the radio has not come   " -ForegroundColor Red
+        Write-Host "      back online yet. Check power/cabling and      " -ForegroundColor Red
+        Write-Host "      verify it manually before trusting this unit. " -ForegroundColor Red
+        Write-Host "====================================================" -ForegroundColor Red
     }
-    Write-Host "====================================================" -ForegroundColor Green
 
     # --- Offer to provision paired radio (only on non-forced calls) ---
     if (-not $ForcedRole) {
